@@ -35,6 +35,8 @@ function RedisSentinelClient(options) {
 
   this.options.masterName = this.options.masterName || 'mymaster';
 
+  this.masterConnectionPool = {};
+
   // no socket support for now (b/c need multiple connections).
   if ((!options.port || !options.host) && (!options.sentinels || !options.sentinels.length)) {
     throw new Error("Sentinel client needs a host and port");
@@ -194,7 +196,11 @@ RedisSentinelClient.prototype._connectSentinel = function (port, host) {
 // It allows an offline_queue to be built up and doesn't let the app think
 // that everything is hunky dory when it isnt
 RedisSentinelClient.prototype.disconnect = function disconnect() {
-  this.activeMasterClient.end()
+   // Commenting this out as it emits random ECONNREFUSED
+   // error during failovers.
+   // 
+
+   //this.activeMasterClient.end()
 }
 
 // [re]connect activeMasterClient to the master.
@@ -261,7 +267,12 @@ RedisSentinelClient.prototype._connect = function (port, host) {
     thisClient.subscription_set = self.activeMasterClient.subscription_set || {}
     thisClient.offline_queue = self.activeMasterClient.offline_queue
   }
+  // Keeping it in the pool to stop getting dereferenced immediately.
+  // This is a hack to handle timing issue during failovers.
 
+  if(self.activeMasterClient) {
+    self.masterConnectionPool[self.activeMasterClient.host, self.activeMasterClient.port] = self.activeMasterClient;
+  }
   self.activeMasterClient = thisClient;
 
   // pass up messages
@@ -289,7 +300,7 @@ RedisSentinelClient.prototype._connect = function (port, host) {
 RedisSentinelClient.prototype.send_command = function (command, args, callback) {
   // this ref needs to be totally atomic
   var client = this.activeMasterClient;
-  return client.send_command.apply(client, arguments);
+  return client.send_command.apply(client, to_array(arguments));
 };
 
 // adapted from index.js for RedisClient
